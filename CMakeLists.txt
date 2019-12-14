@@ -37,8 +37,10 @@ set(CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE} CACHE STRING "")
 find_package(SoapySDR "0.8" REQUIRED)
 find_package(Volk REQUIRED)
 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR})
-include_directories(${SoapySDR_INCLUDE_DIRS})
+include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${SoapySDR_INCLUDE_DIRS}
+    ${Volk_INCLUDE_DIRS})
 
 ########################################################################
 # Build a Soapy module to add VOLK converters
