@@ -11,80 +11,52 @@
 
 #include <vector>
 
-/*
- * S16 -> S8
- */
-static void volkS16S8(const void* srcBuff, void* dstBuff, const size_t numElems, const double /*scaler*/)
-{
-    volk_16i_convert_8i(
-        reinterpret_cast<int8_t*>(dstBuff),
-        reinterpret_cast<const int16_t*>(srcBuff),
-        numElems);
-}
+#define VOLK_CONVERTER(srcType, dstType, srcFormat, dstFormat, volkFunc) \
+    static void func_ ## srcType ## _to_ ## dstType( \
+        const void* srcBuff, \
+        void* dstBuff, \
+        const size_t numElems, \
+        const double) \
+    { \
+        volkFunc( \
+            reinterpret_cast<dstType*>(dstBuff), \
+            reinterpret_cast<const srcType*>(srcBuff), \
+            numElems); \
+    } \
+    static SoapySDR::ConverterRegistry register_ ## srcType ## _to_ ## dstType ( \
+        srcFormat, \
+        dstFormat, \
+        SoapySDR::ConverterRegistry::VECTORIZED, \
+        &func_ ## srcType ## _to_ ## dstType);
 
-/*
- * S16 -> F32
- */
-static void volkS16F32(const void* srcBuff, void* dstBuff, const size_t numElems, const double scaler)
-{
-    volk_16i_s32f_convert_32f(
-        reinterpret_cast<float*>(dstBuff),
-        reinterpret_cast<const int16_t*>(srcBuff),
-        static_cast<float>(scaler),
-        numElems);
-}
+#define VOLK_CONVERTER_SCALED(srcType, dstType, srcFormat, dstFormat, volkFunc) \
+    static void func_ ## srcType ## _to_ ## dstType( \
+        const void* srcBuff, \
+        void* dstBuff, \
+        const size_t numElems, \
+        const double scalar) \
+    { \
+        volkFunc( \
+            reinterpret_cast<dstType*>(dstBuff), \
+            reinterpret_cast<const srcType*>(srcBuff), \
+            static_cast<float>(scalar), \
+            numElems); \
+    } \
+    static SoapySDR::ConverterRegistry register_ ## srcType ## _to_ ## dstType ( \
+        srcFormat, \
+        dstFormat, \
+        SoapySDR::ConverterRegistry::VECTORIZED, \
+        &func_ ## srcType ## _to_ ## dstType);
 
-/*
- * F32 -> F64
- */
-static void volkF32F64(const void* srcBuff, void* dstBuff, const size_t numElems, const double /*scaler*/)
-{
-    volk_32f_convert_64f(
-        reinterpret_cast<double*>(dstBuff),
-        reinterpret_cast<const float*>(srcBuff),
-        numElems);
-}
-
-/*
- * F32 -> S16
- */
-static void volkF32S16(const void* srcBuff, void* dstBuff, const size_t numElems, const double scaler)
-{
-    volk_32f_s32f_convert_16i(
-        reinterpret_cast<int16_t*>(dstBuff),
-        reinterpret_cast<const float*>(srcBuff),
-        static_cast<float>(scaler),
-        numElems);
-}
-
-/*
- * CS16 -> CF32
- */
-static void volkCS16CF32(const void* srcBuff, void* dstBuff, const size_t numElems, const double /*scaler*/)
-{
-    volk_16ic_convert_32fc(
-        reinterpret_cast<lv_32fc_t*>(dstBuff),
-        reinterpret_cast<const lv_16sc_t*>(srcBuff),
-        numElems);
-}
-
-/*
- * CF32 -> CS16
- */
-static void volkCF32CS16(const void* srcBuff, void* dstBuff, const size_t numElems, const double /*scaler*/)
-{
-    volk_32fc_convert_16ic(
-        reinterpret_cast<lv_16sc_t*>(dstBuff),
-        reinterpret_cast<const lv_32fc_t*>(srcBuff),
-        numElems);
-}
-
-static const std::vector<SoapySDR::ConverterRegistry> VolkConverters =
-{
-    SoapySDR::ConverterRegistry(SOAPY_SDR_S16, SOAPY_SDR_S8, SoapySDR::ConverterRegistry::VECTORIZED, &volkS16S8),
-    SoapySDR::ConverterRegistry(SOAPY_SDR_S16, SOAPY_SDR_F32, SoapySDR::ConverterRegistry::VECTORIZED, &volkS16F32),
-    SoapySDR::ConverterRegistry(SOAPY_SDR_F32, SOAPY_SDR_S16, SoapySDR::ConverterRegistry::VECTORIZED, &volkF32S16),
-    SoapySDR::ConverterRegistry(SOAPY_SDR_F32, SOAPY_SDR_F64, SoapySDR::ConverterRegistry::VECTORIZED, &volkF32F64),
-    SoapySDR::ConverterRegistry(SOAPY_SDR_CS16, SOAPY_SDR_CF32, SoapySDR::ConverterRegistry::VECTORIZED, &volkCS16CF32),
-    SoapySDR::ConverterRegistry(SOAPY_SDR_CF32, SOAPY_SDR_CS16, SoapySDR::ConverterRegistry::VECTORIZED, &volkCF32CS16),
-};
+VOLK_CONVERTER(lv_16sc_t, lv_32fc_t, SOAPY_SDR_CS16, SOAPY_SDR_CF32, volk_16ic_convert_32fc)
+VOLK_CONVERTER(int16_t, int8_t, SOAPY_SDR_S16, SOAPY_SDR_S8, volk_16i_convert_8i)
+VOLK_CONVERTER_SCALED(int16_t, float, SOAPY_SDR_S16, SOAPY_SDR_F32, volk_16i_s32f_convert_32f)
+VOLK_CONVERTER(lv_32fc_t, lv_16sc_t, SOAPY_SDR_CF32, SOAPY_SDR_CS16, volk_32fc_convert_16ic)
+VOLK_CONVERTER(float, double, SOAPY_SDR_F32, SOAPY_SDR_F64, volk_32f_convert_64f)
+VOLK_CONVERTER_SCALED(float, int16_t, SOAPY_SDR_F32, SOAPY_SDR_S16, volk_32f_s32f_convert_16i)
+VOLK_CONVERTER_SCALED(float, int32_t, SOAPY_SDR_F32, SOAPY_SDR_S32, volk_32f_s32f_convert_32i)
+VOLK_CONVERTER_SCALED(float, int8_t, SOAPY_SDR_F32, SOAPY_SDR_S8, volk_32f_s32f_convert_8i)
+VOLK_CONVERTER_SCALED(int32_t, float, SOAPY_SDR_S32, SOAPY_SDR_F32, volk_32i_s32f_convert_32f)
+VOLK_CONVERTER(double, float, SOAPY_SDR_F64, SOAPY_SDR_F32, volk_64f_convert_32f)
+VOLK_CONVERTER(int8_t, int16_t, SOAPY_SDR_S8, SOAPY_SDR_S16, volk_8i_convert_16i)
+VOLK_CONVERTER_SCALED(int8_t, float, SOAPY_SDR_S8, SOAPY_SDR_F32, volk_8i_s32f_convert_32f)
