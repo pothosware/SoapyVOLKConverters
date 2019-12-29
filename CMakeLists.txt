@@ -62,6 +62,16 @@ add_test(TestSoapyVOLKConverters TestSoapyVOLKConverters)
 target_link_libraries(TestSoapyVOLKConverters ${SoapySDR_LIBRARIES})
 
 ########################################################################
+# Benchmark VOLK vs. generic converters
+########################################################################
+add_executable(BenchmarkSoapyVOLKConverters BenchmarkSoapyVOLKConverters.cpp)
+
+# Link against Soapy, not the module, which is loaded at runtime
+target_link_libraries(BenchmarkSoapyVOLKConverters
+    ${SoapySDR_LIBRARIES}
+    Volk::volk)
+
+########################################################################
 # Print Summary
 ########################################################################
 MESSAGE(STATUS "Using install prefix: ${CMAKE_INSTALL_PREFIX}")

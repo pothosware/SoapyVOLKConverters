@@ -1,0 +1,182 @@
+// Copyright (c) 2019 Nicholas Corgan
+// SPDX-License-Identifier: GPL-3.0
+
+#include <SoapySDR/ConverterRegistry.hpp>
+#include <SoapySDR/Formats.hpp>
+#include <SoapySDR/Modules.hpp>
+#include <SoapySDR/Version.hpp>
+
+#include <volk/constants.h>
+
+#include <algorithm>
+#include <chrono>
+#include <cstdlib>
+#include <ctime>
+#include <iostream>
+#include <random>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+using SoapySDR::ConverterRegistry;
+using ByteVector = std::vector<uint8_t>;
+
+static constexpr size_t numElements = 16384;
+static constexpr size_t numIterations = 10000;
+static constexpr double scalarRatio = 10.0;
+
+static ByteVector getRandomMemory(size_t numElements, size_t elementSize)
+{
+    const size_t memSize = numElements * elementSize;
+    ByteVector mem(memSize);
+
+    // Fill the memory with "random" data. Not truly random, but enough for
+    // our purpose.
+    int* memAsInt = reinterpret_cast<int*>(mem.data());
+    for(size_t i = 0; i < (memSize/sizeof(int)); ++i)
+    {
+        memAsInt[i] = rand();
+    }
+
+    return mem;
+}
+
+double median(const std::vector<double>& inputs)
+{
+    std::vector<double> sortedInputs(inputs);
+    std::sort(sortedInputs.begin(), sortedInputs.end());
+
+    return sortedInputs[sortedInputs.size()/2];
+}
+
+double medAbsDev(const std::vector<double>& inputs)
+{
+    const double med = median(inputs);
+
+    std::vector<double> diffs;
+    std::transform(
+        inputs.begin(),
+        inputs.end(),
+        std::back_inserter(diffs),
+        [&med](double val){return std::abs(val-med);});
+
+    return median(diffs);
+}
+
+static inline double getScalar(
+    const std::string& source,
+    const std::string& target)
+{
+    const auto sourceSize = SoapySDR::formatToSize(source);
+    const auto targetSize = SoapySDR::formatToSize(target);
+
+    if(sourceSize == targetSize) return 1.0;
+
+    return (sourceSize > targetSize) ? (1.0 / scalarRatio) : scalarRatio;
+}
+
+static double benchmarkConverter(
+    const std::string& source,
+    const std::string& target,
+    ConverterRegistry::FunctionPriority priority)
+{
+    using Microseconds = std::chrono::duration<double, std::micro>;
+
+    auto converterFunc = ConverterRegistry::getFunction(
+                             source,
+                             target,
+                             priority);
+
+    std::vector<double> times;
+    times.reserve(numIterations);
+
+    auto output = ByteVector(numElements * SoapySDR::formatToSize(target));
+    const auto scalar = getScalar(source, target);
+
+    for(size_t i = 0; i < numIterations; ++i)
+    {
+        auto input = getRandomMemory(numElements, SoapySDR::formatToSize(source));
+
+        auto startTime = std::chrono::system_clock::now();
+
+        converterFunc(
+            input.data(),
+            output.data(),
+            numElements,
+            scalar);
+
+        auto endTime = std::chrono::system_clock::now();
+        Microseconds iterationTime = endTime-startTime;
+        times.emplace_back(iterationTime.count());
+    }
+
+    const auto medianTime = median(times);
+    const auto medAbsDevTime = medAbsDev(times);
+    std::cout << medianTime << " us (MAD = " << medAbsDevTime << " us)" << std::endl;
+
+    return medianTime;
+}
+
+static void compareConverters(
+    const std::string& source,
+    const std::string& target)
+{
+    std::cout << std::endl << source << " -> " << target << std::endl;
+    double genericMedian = benchmarkConverter(source, target, ConverterRegistry::GENERIC);
+    double vectorizedMedian = benchmarkConverter(source, target, ConverterRegistry::VECTORIZED);
+    std::cout << (genericMedian / vectorizedMedian) << "x faster" << std::endl;
+}
+
+static void benchmarkVectorizedOnly(
+    const std::string& source,
+    const std::string& target)
+{
+    std::cout << std::endl << source << " -> " << target << " (no generic)" << std::endl;
+    (void)benchmarkConverter(source, target, ConverterRegistry::VECTORIZED);
+}
+
+int main(int, char**)
+{
+    try
+    {
+        srand(time(0));
+
+        std::cout << "SoapySDR " << SoapySDR::getLibVersion() << std::endl;
+        std::cout << "VOLK     " << volk_version() << std::endl;
+
+        std::cout << std::endl;
+        std::cout << "Stats:" << std::endl;
+        std::cout << " * Buffer size:  " << numElements << std::endl;
+        std::cout << " * # iterations: " << numIterations << std::endl;
+        std::cout << " * Scalar ratio: " << scalarRatio << std::endl;
+
+        // TODO: portability
+        SoapySDR::loadModule("./libvolkConverters.so");
+
+        compareConverters(SOAPY_SDR_CS16, SOAPY_SDR_CF32);
+        compareConverters(SOAPY_SDR_S16, SOAPY_SDR_S8);
+        compareConverters(SOAPY_SDR_CF32, SOAPY_SDR_CS16);
+        compareConverters(SOAPY_SDR_S8, SOAPY_SDR_S16);
+        compareConverters(SOAPY_SDR_S16, SOAPY_SDR_F32);
+        compareConverters(SOAPY_SDR_F32, SOAPY_SDR_S16);
+        compareConverters(SOAPY_SDR_F32, SOAPY_SDR_S8);
+        compareConverters(SOAPY_SDR_S8, SOAPY_SDR_F32);
+
+        benchmarkVectorizedOnly(SOAPY_SDR_F32, SOAPY_SDR_F64);
+        benchmarkVectorizedOnly(SOAPY_SDR_F64, SOAPY_SDR_F32);
+        benchmarkVectorizedOnly(SOAPY_SDR_F32, SOAPY_SDR_S32);
+        benchmarkVectorizedOnly(SOAPY_SDR_S32, SOAPY_SDR_F32);
+    }
+    catch(const std::exception& ex)
+    {
+        std::cerr << "Uncaught exception: " << ex.what() << std::endl;
+        return EXIT_FAILURE;
+    }
+    catch(...)
+    {
+        std::cerr << "Unknown exception caught." << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
+}
