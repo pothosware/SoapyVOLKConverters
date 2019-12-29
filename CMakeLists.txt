@@ -53,6 +53,15 @@ SOAPY_SDR_MODULE_UTIL(
 )
 
 ########################################################################
+# Add test
+########################################################################
+add_executable(TestSoapyVOLKConverters TestSoapyVOLKConverters.cpp)
+add_test(TestSoapyVOLKConverters TestSoapyVOLKConverters)
+
+# Link against Soapy, not the module, which is loaded at runtime
+target_link_libraries(TestSoapyVOLKConverters ${SoapySDR_LIBRARIES})
+
+########################################################################
 # Print Summary
 ########################################################################
 MESSAGE(STATUS "Using install prefix: ${CMAKE_INSTALL_PREFIX}")
