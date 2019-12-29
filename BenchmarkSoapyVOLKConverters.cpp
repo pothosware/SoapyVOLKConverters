@@ -7,32 +7,50 @@
 #include <SoapySDR/Version.hpp>
 
 #include <volk/constants.h>
+#include <volk/volk.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
 #include <iostream>
+#include <memory>
 #include <random>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 using SoapySDR::ConverterRegistry;
-using ByteVector = std::vector<uint8_t>;
 
 static constexpr size_t numElements = 16384;
 static constexpr size_t numIterations = 10000;
 static constexpr double scalarRatio = 10.0;
 
-static ByteVector getRandomMemory(size_t numElements, size_t elementSize)
+//
+// RAII volk_malloc
+//
+
+using VolkPtr = std::unique_ptr<void, void(*)(void*)>;
+
+static VolkPtr getVolkPtr(size_t size)
+{
+    return VolkPtr(
+               volk_malloc(size, volk_get_alignment()),
+               volk_free);
+}
+
+//
+// Utility functions
+//
+
+static VolkPtr getRandomMemory(size_t numElements, size_t elementSize)
 {
     const size_t memSize = numElements * elementSize;
-    ByteVector mem(memSize);
+    auto mem = getVolkPtr(memSize);
 
     // Fill the memory with "random" data. Not truly random, but enough for
     // our purpose.
-    int* memAsInt = reinterpret_cast<int*>(mem.data());
+    int* memAsInt = reinterpret_cast<int*>(mem.get());
     for(size_t i = 0; i < (memSize/sizeof(int)); ++i)
     {
         memAsInt[i] = rand();
@@ -92,7 +110,7 @@ static void benchmarkConverter(
     std::vector<double> times;
     times.reserve(numIterations);
 
-    auto output = ByteVector(numElements * SoapySDR::formatToSize(target));
+    auto output = getVolkPtr(numElements * SoapySDR::formatToSize(target));
     const auto scalar = getScalar(source, target);
 
     for(size_t i = 0; i < numIterations; ++i)
@@ -102,8 +120,8 @@ static void benchmarkConverter(
         auto startTime = std::chrono::system_clock::now();
 
         converterFunc(
-            input.data(),
-            output.data(),
+            input.get(),
+            output.get(),
             numElements,
             scalar);
 
