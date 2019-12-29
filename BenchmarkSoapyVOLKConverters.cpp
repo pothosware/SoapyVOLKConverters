@@ -75,10 +75,12 @@ static inline double getScalar(
     return (sourceSize > targetSize) ? (1.0 / scalarRatio) : scalarRatio;
 }
 
-static double benchmarkConverter(
+static void benchmarkConverter(
     const std::string& source,
     const std::string& target,
-    ConverterRegistry::FunctionPriority priority)
+    ConverterRegistry::FunctionPriority priority,
+    double* pMedian,
+    double* pMedAbsDev)
 {
     using Microseconds = std::chrono::duration<double, std::micro>;
 
@@ -110,29 +112,49 @@ static double benchmarkConverter(
         times.emplace_back(iterationTime.count());
     }
 
-    const auto medianTime = median(times);
-    const auto medAbsDevTime = medAbsDev(times);
-    std::cout << medianTime << " us (MAD = " << medAbsDevTime << " us)" << std::endl;
-
-    return medianTime;
+    (*pMedian) = median(times);
+    (*pMedAbsDev) = medAbsDev(times);
 }
 
 static void compareConverters(
     const std::string& source,
     const std::string& target)
 {
+    double genericMedianTime, genericMedAbsDevTime;
+    double vectorizedMedianTime, vectorizedMedAbsDevTime;
+
     std::cout << std::endl << source << " -> " << target << std::endl;
-    double genericMedian = benchmarkConverter(source, target, ConverterRegistry::GENERIC);
-    double vectorizedMedian = benchmarkConverter(source, target, ConverterRegistry::VECTORIZED);
-    std::cout << (genericMedian / vectorizedMedian) << "x faster" << std::endl;
+    benchmarkConverter(
+        source,
+        target,
+        ConverterRegistry::GENERIC,
+        &genericMedianTime,
+        &genericMedAbsDevTime);
+    benchmarkConverter(
+        source,
+        target,
+        ConverterRegistry::VECTORIZED,
+        &vectorizedMedianTime,
+        &vectorizedMedAbsDevTime);
+    std::cout << "Generic:    " << genericMedianTime << " us (MAD = " << genericMedAbsDevTime << " us)" << std::endl;
+    std::cout << "Vectorized: " << vectorizedMedianTime << " us (MAD = " << vectorizedMedAbsDevTime << " us)" << std::endl;
+    std::cout << (genericMedianTime / vectorizedMedianTime) << "x faster" << std::endl;
 }
 
 static void benchmarkVectorizedOnly(
     const std::string& source,
     const std::string& target)
 {
-    std::cout << std::endl << source << " -> " << target << " (no generic)" << std::endl;
-    (void)benchmarkConverter(source, target, ConverterRegistry::VECTORIZED);
+    double medianTime, medAbsDevTime;
+
+    std::cout << std::endl << source << " -> " << target << std::endl;
+    benchmarkConverter(
+        source,
+        target,
+        ConverterRegistry::VECTORIZED,
+        &medianTime,
+        &medAbsDevTime);
+    std::cout << "Vectorized: " << medianTime << " us (MAD = " << medAbsDevTime << " us)" << std::endl;
 }
 
 int main(int, char**)
@@ -141,17 +163,19 @@ int main(int, char**)
     {
         srand(time(0));
 
-        std::cout << "SoapySDR " << SoapySDR::getLibVersion() << std::endl;
-        std::cout << "VOLK     " << volk_version() << std::endl;
+        // TODO: portability
+        const std::string modulePath = "./libvolkConverters.so";
+        SoapySDR::loadModule(modulePath);
+
+        std::cout << "SoapyVOLKConverters " << SoapySDR::getModuleVersion(modulePath) << std::endl;
+        std::cout << "SoapySDR            " << SoapySDR::getLibVersion() << std::endl;
+        std::cout << "VOLK                " << volk_version() << std::endl;
 
         std::cout << std::endl;
         std::cout << "Stats:" << std::endl;
         std::cout << " * Buffer size:  " << numElements << std::endl;
         std::cout << " * # iterations: " << numIterations << std::endl;
         std::cout << " * Scalar ratio: " << scalarRatio << std::endl;
-
-        // TODO: portability
-        SoapySDR::loadModule("./libvolkConverters.so");
 
         compareConverters(SOAPY_SDR_CS16, SOAPY_SDR_CF32);
         compareConverters(SOAPY_SDR_S16, SOAPY_SDR_S8);
