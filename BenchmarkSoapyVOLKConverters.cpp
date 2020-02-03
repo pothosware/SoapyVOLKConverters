@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Nicholas Corgan
+// Copyright (c) 2019-2020 Nicholas Corgan
 // SPDX-License-Identifier: GPL-3.0
 
 #include <SoapySDR/ConverterRegistry.hpp>
@@ -26,7 +26,7 @@ using SoapySDR::ConverterRegistry;
 
 static constexpr size_t numElements = 16384;
 static constexpr size_t numIterations = 10000;
-static constexpr double scalarRatio = 10.0;
+static constexpr double scalarRatio = 32.0;
 
 //
 // RAII volk_malloc
