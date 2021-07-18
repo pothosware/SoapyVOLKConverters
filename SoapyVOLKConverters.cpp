@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Nicholas Corgan
+// Copyright (c) 2019-2021 Nicholas Corgan
 // SPDX-License-Identifier: GPL-3.0
 
 /***********************************************************************
@@ -21,7 +21,7 @@
         volkFunc( \
             reinterpret_cast<dstType*>(dstBuff), \
             reinterpret_cast<const srcType*>(srcBuff), \
-            numElems); \
+            static_cast<unsigned int>(numElems)); \
     } \
     static SoapySDR::ConverterRegistry register_ ## srcType ## _to_ ## dstType ( \
         srcFormat, \
@@ -44,7 +44,7 @@
             reinterpret_cast<dstType*>(dstBuff), \
             reinterpret_cast<const srcType*>(srcBuff), \
             static_cast<float>(invScalar ? (1.0 / scalar) : scalar), \
-            numElems); \
+            static_cast<unsigned int>(numElems)); \
     } \
     static SoapySDR::ConverterRegistry register_ ## srcType ## _to_ ## dstType ( \
         srcFormat, \
