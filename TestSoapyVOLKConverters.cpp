@@ -111,119 +111,169 @@ T median(const std::vector<T>& inputs)
 }
 
 template <typename T>
+double medAbsDev(const std::vector<T>& inputs)
+{
+    const T med = median(inputs);
+
+    std::vector<T> diffs;
+    std::transform(
+        inputs.begin(),
+        inputs.end(),
+        std::back_inserter(diffs),
+        [&med](T val) {return std::abs(val - med); });
+
+    return median(diffs);
+}
+
+template <typename T>
 static EnableIfNotComplex<T, T> absDiff(const T& num0, const T& num1)
 {
     return std::abs(num0 - num1);
 }
 
 template <typename T>
-static EnableIfComplex<T, T> absDiff(const T& num0, const T& num1)
+static EnableIfComplex<T, typename T::value_type> absDiff(const T& num0, const T& num1)
 {
     return std::abs(std::abs(num0) - std::abs(num1));
 }
 
 template <typename T>
-static EnableIfNotComplex<T, T> medianDiff(
+static void averageValues(
     const std::vector<T>& vec0,
-    const std::vector<T>& vec1)
+    const std::vector<T>& vec1,
+    T& medianOut,
+    T& medAbsDevOut)
 {
     std::vector<T> diffs(vec0.size());
-
     for (size_t i = 0; i < vec0.size(); ++i)
     {
-        diffs[i] = std::abs(vec0[i] - vec1[i]);
+        diffs[i] = absDiff(vec0[i], vec1[i]);
     }
 
-    return median(diffs);
+    medianOut = median(diffs);
+    medAbsDevOut = medAbsDev(diffs);
 }
 
 template <typename T>
-static EnableIfComplex<T, typename T::value_type> medianDiff(
-    const std::vector<T>& vec0,
-    const std::vector<T>& vec1)
+static void averageValues(
+    const std::vector<std::complex<T>>& vec0,
+    const std::vector<std::complex<T>>& vec1,
+    T& medianOut,
+    T& medAbsDevOut)
 {
-    std::vector<T::value_type> diffs(vec0.size());
-
+    std::vector<T> diffs(vec0.size());
     for (size_t i = 0; i < vec0.size(); ++i)
     {
-        diffs[i] = std::abs(std::abs(vec0[i]) - std::abs(vec1[i]));
+        diffs[i] = absDiff(vec0[i], vec1[i]);
     }
 
-    return median(diffs);
+    medianOut = median(diffs);
+    medAbsDevOut = medAbsDev(diffs);
 }
 
 template <typename T>
 static inline EnableIfNotComplex<T, void> testOutputs(
-    const std::vector<T>& genericConverterOutputs,
-    const std::vector<T>& vectorizedConverterOutputs)
+    const std::vector<T>& vec0,
+    const std::vector<T>& vec1)
 {
-    std::cout << " * Average diff: " << double(medianDiff(genericConverterOutputs, vectorizedConverterOutputs)) << std::endl;
+    T median(0);
+    T medAbsDev(0);
+    averageValues(
+        vec0,
+        vec1,
+        median,
+        medAbsDev);
+
+    std::cout << " * Average diff: " << double(median) << " +- " << double(medAbsDev) << std::endl;
 }
 
 template <typename T>
-static inline EnableIfComplex<T, void> testOutputs(
-    const std::vector<T>& genericConverterOutputs,
-    const std::vector<T>& vectorizedConverterOutputs)
+static EnableIfComplex<T, void> testOutputs(
+    const std::vector<T>& vec0,
+    const std::vector<T>& vec1)
 {
-    std::cout << " * Average complex diff: " << double(medianDiff(genericConverterOutputs, vectorizedConverterOutputs)) << std::endl;
+    using ScalarT = typename T::value_type;
+
+    ScalarT median(0);
+    ScalarT medAbsDev(0);
+    averageValues(
+        vec0,
+        vec1,
+        median,
+        medAbsDev);
+
+    std::cout << " * Average complex diff: " << double(median) << " +- " << double(medAbsDev) << std::endl;
 }
 
 //
 // Test code
 //
 
-template <typename InType, typename OutType>
-static bool testConverterLoopback(
-    const std::string& source,
-    const std::string& target,
-    const double scalar)
+struct TestConverters
 {
-    static constexpr size_t numElements = 1024;
+    SoapySDR::ConverterRegistry::ConverterFunction convertType1ToType2{ nullptr };
+    SoapySDR::ConverterRegistry::ConverterFunction convertType2ToType1{ nullptr };
+};
 
-    std::cout << "Testing " << source << " -> " << target << " (scaled x" << scalar << ")..." << std::endl;
-
-    const std::vector<InType> testValues = getRandomValues<InType>(numElements);
-    std::vector<OutType> genericConverterOutputs(numElements);
-    std::vector<OutType> vectorizedConverterOutputs(numElements);
-
-    SoapySDR::ConverterRegistry::ConverterFunction genericFunc = nullptr;
-    SoapySDR::ConverterRegistry::ConverterFunction vectorizedFunc = nullptr;
-
+bool getConvertFunctions(
+    const std::string& type1,
+    const std::string& type2,
+    TestConverters& convertersOut)
+{
     try
     {
-        genericFunc = SoapySDR::ConverterRegistry::getFunction(
-            source,
-            target,
-            SoapySDR::ConverterRegistry::GENERIC);
-    }
-    catch(std::exception & ex)
-    {
-        std::cerr << " * Exception getting generic converter: " << ex.what() << std::endl;
-    }
+        convertersOut.convertType1ToType2 = SoapySDR::ConverterRegistry::getFunction(
+            type1,
+            type2,
+            SoapySDR::ConverterRegistry::VECTORIZED);
 
-    try
-    {
-        vectorizedFunc = SoapySDR::ConverterRegistry::getFunction(
-            source,
-            target,
+        convertersOut.convertType2ToType1 = SoapySDR::ConverterRegistry::getFunction(
+            type2,
+            type1,
             SoapySDR::ConverterRegistry::VECTORIZED);
     }
-    catch(std::exception& ex)
+    catch (std::exception& ex)
     {
-        std::cerr << " * Exception getting vectorized converter: " << ex.what() << std::endl;
+        std::cerr << " * Exception getting converters: " << ex.what() << std::endl;
         return false;
     }
 
-    if (genericFunc)
-    {
-        std::cout << " * Running generic converter..." << std::endl;
-        genericFunc(testValues.data(), genericConverterOutputs.data(), numElements, scalar);
-    }
+    return true;
+}
 
-    std::cout << " * Running vectorized converter..." << std::endl;
-    vectorizedFunc(testValues.data(), vectorizedConverterOutputs.data(), numElements, scalar);
+template <typename InType, typename OutType>
+static bool testConverterLoopback(
+    const std::string& type1,
+    const std::string& type2,
+    const double type1ToType2Scalar)
+{
+    static constexpr size_t numElements = 1024;
 
-    if(genericFunc) testOutputs(genericConverterOutputs, vectorizedConverterOutputs);
+    std::cout << "Testing " << type1 << " -> " << type2 << " (scaled x" << type1ToType2Scalar
+              << ") -> " << type1 << " (scaled x" << (1.0 / type1ToType2Scalar) << ")..." << std::endl;
+
+    TestConverters testConverters;
+    if (!getConvertFunctions(type1, type2, testConverters)) return false;
+
+    if (!testConverters.convertType1ToType2) return false;
+    if (!testConverters.convertType2ToType1) return false;
+
+    const std::vector<InType> testValues = getRandomValues<InType>(numElements);
+    std::vector<OutType> convertedValues(numElements);
+    std::vector<InType> loopbackValues(numElements);
+
+    testConverters.convertType1ToType2(
+        testValues.data(),
+        convertedValues.data(),
+        numElements,
+        type1ToType2Scalar);
+    testConverters.convertType2ToType1(
+        convertedValues.data(),
+        loopbackValues.data(),
+        numElements,
+        (1.0 / type1ToType2Scalar));
+
+    testOutputs(testValues, loopbackValues);
 
     return true;
 }
@@ -238,19 +288,19 @@ int main(int, char**)
 
     // These converters don't support scaling and ignore the parameter
     testConverterLoopback<std::complex<int16_t>, std::complex<float>>(SOAPY_SDR_CS16, SOAPY_SDR_CF32, 1.0);
-    testConverterLoopback<int16_t, int8_t>(SOAPY_SDR_S16, SOAPY_SDR_S8, 1.0);
     testConverterLoopback<std::complex<float>, std::complex<int16_t>>(SOAPY_SDR_CF32, SOAPY_SDR_CS16, 1.0);
+    testConverterLoopback<int8_t, int16_t>(SOAPY_SDR_S8, SOAPY_SDR_S16, 1.0);
+    testConverterLoopback<int16_t, int8_t>(SOAPY_SDR_S16, SOAPY_SDR_S8, 1.0);
     testConverterLoopback<float, double>(SOAPY_SDR_F32, SOAPY_SDR_F64, 1.0);
     testConverterLoopback<double, float>(SOAPY_SDR_F64, SOAPY_SDR_F32, 1.0);
-    testConverterLoopback<int8_t, int16_t>(SOAPY_SDR_S8, SOAPY_SDR_S16, 1.0);
 
     // Tests with scaling
-    testConverterLoopback<int8_t, float>(SOAPY_SDR_S8, SOAPY_SDR_F32, 1.0);
-    testConverterLoopback<int16_t, float>(SOAPY_SDR_S16, SOAPY_SDR_F32, 1.0);
-    testConverterLoopback<int32_t, float>(SOAPY_SDR_S32, SOAPY_SDR_F32, 1.0);
-    testConverterLoopback<float, int8_t>(SOAPY_SDR_F32, SOAPY_SDR_S8, 1.0);
-    testConverterLoopback<float, int16_t>(SOAPY_SDR_F32, SOAPY_SDR_S16, 1.0);
-    testConverterLoopback<float, int32_t>(SOAPY_SDR_F32, SOAPY_SDR_S32, 1.0);
+    testConverterLoopback<int8_t, float>(SOAPY_SDR_S8, SOAPY_SDR_F32, 0.01);
+    testConverterLoopback<float, int8_t>(SOAPY_SDR_F32, SOAPY_SDR_S8, 100.0);
+    testConverterLoopback<int16_t, float>(SOAPY_SDR_S16, SOAPY_SDR_F32, 0.01);
+    testConverterLoopback<float, int16_t>(SOAPY_SDR_F32, SOAPY_SDR_S16, 100.0);
+    testConverterLoopback<int32_t, float>(SOAPY_SDR_S32, SOAPY_SDR_F32, 0.01);
+    testConverterLoopback<float, int32_t>(SOAPY_SDR_F32, SOAPY_SDR_S32, 100.0);
 
     return EXIT_SUCCESS;
 }
