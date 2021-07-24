@@ -1,17 +1,9 @@
 # Soapy SDR VOLK-based type converters
 
-## Build Status
-
-- Travis: TODO
-
 ## Dependencies
 
 * VOLK - https://github.com/gnuradio/volk
-* SoapySDR - https://github.com/pothosware/SoapySDR/wiki
-
-## Documentation
-
-* TODO
+* SoapySDR (0.7+) - https://github.com/pothosware/SoapySDR/wiki
 
 ## Licensing information
 
