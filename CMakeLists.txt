@@ -1,4 +1,4 @@
-# Copyright 2019 Nicholas Corgan
+# Copyright 2019-2021 Nicholas Corgan
 #
 # This file is part of SoapyVOLKConverters
 #
@@ -16,6 +16,8 @@
 # along with SoapyVOLKConverters; see the file COPYING.  If not, write to
 # the Free Software Foundation, Inc., 51 Franklin Street,
 # Boston, MA 02110-1301, USA.
+
+# TODO: old-style VOLK includes and library links
 
 ########################################################################
 # Project setup
@@ -59,7 +61,9 @@ add_executable(TestSoapyVOLKConverters TestSoapyVOLKConverters.cpp)
 add_test(TestSoapyVOLKConverters TestSoapyVOLKConverters)
 
 # Link against Soapy, not the module, which is loaded at runtime
-target_link_libraries(TestSoapyVOLKConverters ${SoapySDR_LIBRARIES})
+target_link_libraries(TestSoapyVOLKConverters
+    ${SoapySDR_LIBRARIES}
+    Volk::volk)
 
 ########################################################################
 # Benchmark VOLK vs. generic converters

@@ -52,14 +52,14 @@ static std::mt19937 gen(rd());
 template <typename T>
 static EnableIfByte<T, T> getRandomValue()
 {
-    static std::uniform_int_distribution<int> dist(0, 50);
+    static std::uniform_int_distribution<int> dist(0, 127);
     return T(dist(gen));
 }
 
 template <typename T>
 static EnableIfIntegral<T, T> getRandomValue()
 {
-    static std::uniform_int_distribution<T> dist(T(0), T(50));
+    static std::uniform_int_distribution<T> dist(T(0), std::numeric_limits<T>::max());
     return dist(gen);
 }
 
@@ -78,9 +78,9 @@ static EnableIfComplex<T, T> getRandomValue()
 }
 
 template <typename T>
-static std::vector<T> getRandomValues(size_t numElements)
+static volk::vector<T> getRandomValues(size_t numElements)
 {
-    std::vector<T> randomValues;
+    volk::vector<T> randomValues;
     for (size_t i = 0; i < numElements; ++i) randomValues.emplace_back(getRandomValue<T>());
 
     return randomValues;
@@ -102,20 +102,20 @@ static bool loadSoapyVOLK()
 }
 
 template <typename T>
-T median(const std::vector<T>& inputs)
+T median(const volk::vector<T>& inputs)
 {
-    std::vector<T> sortedInputs(inputs);
+    volk::vector<T> sortedInputs(inputs);
     std::sort(sortedInputs.begin(), sortedInputs.end());
 
     return sortedInputs[sortedInputs.size() / 2];
 }
 
 template <typename T>
-double medAbsDev(const std::vector<T>& inputs)
+double medAbsDev(const volk::vector<T>& inputs)
 {
     const T med = median(inputs);
 
-    std::vector<T> diffs;
+    volk::vector<T> diffs;
     std::transform(
         inputs.begin(),
         inputs.end(),
@@ -139,12 +139,12 @@ static EnableIfComplex<T, typename T::value_type> absDiff(const T& num0, const T
 
 template <typename T>
 static void averageValues(
-    const std::vector<T>& vec0,
-    const std::vector<T>& vec1,
+    const volk::vector<T>& vec0,
+    const volk::vector<T>& vec1,
     T& medianOut,
     T& medAbsDevOut)
 {
-    std::vector<T> diffs(vec0.size());
+    volk::vector<T> diffs(vec0.size());
     for (size_t i = 0; i < vec0.size(); ++i)
     {
         diffs[i] = absDiff(vec0[i], vec1[i]);
@@ -156,12 +156,12 @@ static void averageValues(
 
 template <typename T>
 static void averageValues(
-    const std::vector<std::complex<T>>& vec0,
-    const std::vector<std::complex<T>>& vec1,
+    const volk::vector<std::complex<T>>& vec0,
+    const volk::vector<std::complex<T>>& vec1,
     T& medianOut,
     T& medAbsDevOut)
 {
-    std::vector<T> diffs(vec0.size());
+    volk::vector<T> diffs(vec0.size());
     for (size_t i = 0; i < vec0.size(); ++i)
     {
         diffs[i] = absDiff(vec0[i], vec1[i]);
@@ -173,8 +173,8 @@ static void averageValues(
 
 template <typename T>
 static inline EnableIfNotComplex<T, void> testOutputs(
-    const std::vector<T>& vec0,
-    const std::vector<T>& vec1)
+    const volk::vector<T>& vec0,
+    const volk::vector<T>& vec1)
 {
     T median(0);
     T medAbsDev(0);
@@ -189,8 +189,8 @@ static inline EnableIfNotComplex<T, void> testOutputs(
 
 template <typename T>
 static EnableIfComplex<T, void> testOutputs(
-    const std::vector<T>& vec0,
-    const std::vector<T>& vec1)
+    const volk::vector<T>& vec0,
+    const volk::vector<T>& vec1)
 {
     using ScalarT = typename T::value_type;
 
@@ -247,7 +247,9 @@ static bool testConverterLoopback(
     const std::string& type2,
     const double type1ToType2Scalar)
 {
-    static constexpr size_t numElements = 1024;
+    static constexpr size_t numElements = 1024*8;
+
+    std::cout << "-----" << std::endl;
 
     std::cout << "Testing " << type1 << " -> " << type2 << " (scaled x" << type1ToType2Scalar
               << ") -> " << type1 << " (scaled x" << (1.0 / type1ToType2Scalar) << ")..." << std::endl;
@@ -258,9 +260,9 @@ static bool testConverterLoopback(
     if (!testConverters.convertType1ToType2) return false;
     if (!testConverters.convertType2ToType1) return false;
 
-    const std::vector<InType> testValues = getRandomValues<InType>(numElements);
-    std::vector<OutType> convertedValues(numElements);
-    std::vector<InType> loopbackValues(numElements);
+    const volk::vector<InType> testValues = getRandomValues<InType>(numElements);
+    volk::vector<OutType> convertedValues(numElements);
+    volk::vector<InType> loopbackValues(numElements);
 
     testConverters.convertType1ToType2(
         testValues.data(),
@@ -286,21 +288,35 @@ int main(int, char**)
 {
     if (!loadSoapyVOLK()) return EXIT_FAILURE;
 
-    // These converters don't support scaling and ignore the parameter
-    testConverterLoopback<std::complex<int16_t>, std::complex<float>>(SOAPY_SDR_CS16, SOAPY_SDR_CF32, 1.0);
-    testConverterLoopback<std::complex<float>, std::complex<int16_t>>(SOAPY_SDR_CF32, SOAPY_SDR_CS16, 1.0);
-    testConverterLoopback<int8_t, int16_t>(SOAPY_SDR_S8, SOAPY_SDR_S16, 1.0);
-    testConverterLoopback<int16_t, int8_t>(SOAPY_SDR_S16, SOAPY_SDR_S8, 1.0);
+    // Test scalars copied from ConverterPrimitives.hpp
+    constexpr uint32_t S32FullScale = uint32_t(1 << 31);
+    constexpr uint16_t S16FullScale = uint16_t(1 << 15);
+    constexpr uint8_t   S8FullScale = uint8_t(1 << 7);
+
+    constexpr double S8ToF32Scalar = 1.0 / S8FullScale;
+    constexpr double S16ToF32Scalar = 1.0 / S16FullScale;
+    constexpr double S32ToF32Scalar = 1.0 / S32FullScale;
+
+    constexpr double F32ToS8Scalar = 1.0 / S8ToF32Scalar;
+    constexpr double F32ToS16Scalar = 1.0 / S16ToF32Scalar;
+    constexpr double F32ToS32Scalar = 1.0 / S32ToF32Scalar;
+
+    testConverterLoopback<int8_t, float>(SOAPY_SDR_S8, SOAPY_SDR_F32, S8ToF32Scalar);
+    testConverterLoopback<int16_t, float>(SOAPY_SDR_S16, SOAPY_SDR_F32, S16ToF32Scalar);
+    testConverterLoopback<int32_t, float>(SOAPY_SDR_S32, SOAPY_SDR_F32, S32ToF32Scalar);
+    testConverterLoopback<float, int8_t>(SOAPY_SDR_F32, SOAPY_SDR_S8, F32ToS8Scalar);
+    testConverterLoopback<float, int16_t>(SOAPY_SDR_F32, SOAPY_SDR_S16, F32ToS16Scalar);
+    testConverterLoopback<float, int32_t>(SOAPY_SDR_F32, SOAPY_SDR_S32, F32ToS32Scalar);
     testConverterLoopback<float, double>(SOAPY_SDR_F32, SOAPY_SDR_F64, 1.0);
     testConverterLoopback<double, float>(SOAPY_SDR_F64, SOAPY_SDR_F32, 1.0);
+    testConverterLoopback<std::complex<int16_t>, std::complex<float>>(SOAPY_SDR_CS16, SOAPY_SDR_CF32, S16ToF32Scalar);
+    testConverterLoopback<std::complex<float>, std::complex<int16_t>>(SOAPY_SDR_CF32, SOAPY_SDR_CS16, F32ToS16Scalar);
 
-    // Tests with scaling
-    testConverterLoopback<int8_t, float>(SOAPY_SDR_S8, SOAPY_SDR_F32, 0.01);
-    testConverterLoopback<float, int8_t>(SOAPY_SDR_F32, SOAPY_SDR_S8, 100.0);
-    testConverterLoopback<int16_t, float>(SOAPY_SDR_S16, SOAPY_SDR_F32, 0.01);
-    testConverterLoopback<float, int16_t>(SOAPY_SDR_F32, SOAPY_SDR_S16, 100.0);
-    testConverterLoopback<int32_t, float>(SOAPY_SDR_S32, SOAPY_SDR_F32, 0.01);
-    testConverterLoopback<float, int32_t>(SOAPY_SDR_F32, SOAPY_SDR_S32, 100.0);
+    // These converters don't support scaling and ignore the parameter
+    testConverterLoopback<int8_t, int16_t>(SOAPY_SDR_S8, SOAPY_SDR_S16, 1.0);
+    testConverterLoopback<int16_t, int8_t>(SOAPY_SDR_S16, SOAPY_SDR_S8, 1.0);
+
+    std::cout << "-----" << std::endl;
 
     return EXIT_SUCCESS;
 }
