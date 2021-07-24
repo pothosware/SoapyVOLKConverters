@@ -5,6 +5,7 @@
 
 #include <volk/volk_alloc.hh>
 
+#include <algorithm>
 #include <cmath>
 #include <complex>
 #include <random>
@@ -33,19 +34,19 @@ namespace TestUtility
     struct IsComplex<std::complex<T>> : std::true_type {};
 
     template <typename T, typename Ret>
-    using EnableIfByte = typename std::enable_if_t<(sizeof(T) == 1), Ret>;
+    using EnableIfByte = typename std::enable_if<(sizeof(T) == 1), Ret>::type;
 
     template <typename T, typename Ret>
-    using EnableIfIntegral = typename std::enable_if_t<std::is_integral_v<T> && !IsComplex<T>::value && (sizeof(T) > 1), Ret>;
+    using EnableIfIntegral = typename std::enable_if<std::is_integral<T>::value && !IsComplex<T>::value && (sizeof(T) > 1), Ret>::type;
 
     template <typename T, typename Ret>
-    using EnableIfFloatingPoint = typename std::enable_if_t<std::is_floating_point_v<T> && !IsComplex<T>::value, Ret>;
+    using EnableIfFloatingPoint = typename std::enable_if<std::is_floating_point<T>::value && !IsComplex<T>::value, Ret>::type;
 
     template <typename T, typename Ret>
-    using EnableIfNotComplex = typename std::enable_if_t<!IsComplex<T>::value, Ret>;
+    using EnableIfNotComplex = typename std::enable_if<!IsComplex<T>::value, Ret>::type;
 
     template <typename T, typename Ret>
-    using EnableIfComplex = typename std::enable_if_t<IsComplex<T>::value, Ret>;
+    using EnableIfComplex = typename std::enable_if<IsComplex<T>::value, Ret>::type;
 
     static std::random_device rd;
     static std::mt19937 gen(rd());

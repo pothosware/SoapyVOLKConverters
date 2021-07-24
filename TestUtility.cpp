@@ -12,34 +12,16 @@
 
 #if defined _WIN32 || defined __CYGWIN__
 #define IS_WIN32
+
+#include <direct.h> // getcwd
 #else
 #define IS_UNIX
+
+#include <unistd.h> // getcwd
 #endif
 
 #ifndef MAX_PATH
 #define MAX_PATH 256
-#endif
-
-#ifdef IS_WIN32
-#include <direct.h>
-
-std::string getCWD()
-{
-    char cwdBuff[MAX_PATH] = { 0 };
-    _getcwd(cwdBuff, sizeof(cwdBuff));
-
-    return cwdBuff;
-}
-#else
-#include <unistd.h>
-
-std::string getCWD()
-{
-    char cwdBuff[MAX_PATH] = { 0 };
-    getcwd(cwdBuff);
-
-    return cwdBuff;
-}
 #endif
 
 namespace TestUtility
@@ -52,14 +34,17 @@ namespace TestUtility
             std::string separator;
             std::string subpath;
 
-#if defined _WIN32 || defined __CYGWIN__
+            char cwd[MAX_PATH] = {0};
+            getcwd(cwd, sizeof(cwd));
+
+#if IS_WIN32
             extension = ".dll";
             separator = "\\";
             subpath = getCWD() + separator + CMAKE_BUILD_TYPE;
 #else
             extension = ".so";
             separator = "/";
-            subpath = getCWD();
+            subpath.assign(cwd);
 #endif
             const std::string filepath = subpath + separator + "volkConverters" + extension;
             std::cout << "Loading " << filepath << " (" << SoapySDR::getModuleVersion(filepath) << ")..." << std::endl;
