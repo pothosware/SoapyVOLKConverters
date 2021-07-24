@@ -24,12 +24,14 @@
 #define MAX_PATH 256
 #endif
 
+// TODO: MinGW
 namespace TestUtility
 {
     bool loadSoapyVOLK()
     {
         try
         {
+            std::string basename;
             std::string extension;
             std::string separator;
             std::string subpath;
@@ -38,18 +40,20 @@ namespace TestUtility
             getcwd(cwd, sizeof(cwd));
 
 #if IS_WIN32
+            basename = "volkConverters";
             extension = ".dll";
             separator = "\\";
             subpath = getCWD() + separator + CMAKE_BUILD_TYPE;
 #else
+            basename = "libvolkConverters";
             extension = ".so";
             separator = "/";
             subpath.assign(cwd);
 #endif
-            const std::string filepath = subpath + separator + "volkConverters" + extension;
-            std::cout << "Loading " << filepath << " (" << SoapySDR::getModuleVersion(filepath) << ")..." << std::endl;
-
-            SoapySDR::loadModule("Release\\volkConverters.dll");
+            const std::string filepath = subpath + separator + basename + extension;
+            std::cout << "Loading " << filepath << "..." << std::endl;
+            SoapySDR::loadModule(filepath);
+            std::cout << "Loaded version " << SoapySDR::getModuleVersion(filepath) << std::endl;
         }
         catch (const std::exception& ex)
         {
