@@ -41,12 +41,17 @@ find_package(Volk REQUIRED)
 
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
     ${SoapySDR_INCLUDE_DIRS}
     ${Volk_INCLUDE_DIRS})
 
 ########################################################################
 # Build a Soapy module to add VOLK converters
 ########################################################################
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/config.in.h
+    ${CMAKE_CURRENT_BINARY_DIR}/config.h)
+
 SOAPY_SDR_MODULE_UTIL(
     TARGET volkConverters
     SOURCES SoapyVOLKConverters.cpp
