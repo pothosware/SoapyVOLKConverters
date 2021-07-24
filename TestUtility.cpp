@@ -37,7 +37,8 @@ namespace TestUtility
             std::string subpath;
 
             char cwd[MAX_PATH] = {0};
-            getcwd(cwd, sizeof(cwd));
+            char* _ = getcwd(cwd, sizeof(cwd)); // Suppress Clang warning
+            (void)_;
 
 #if IS_WIN32
             basename = "volkConverters";
