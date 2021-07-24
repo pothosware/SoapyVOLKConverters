@@ -13,6 +13,19 @@
 
 namespace TestUtility
 {
+    // Test scalars copied from ConverterPrimitives.hpp
+    constexpr uint32_t S32FullScale = uint32_t(1 << 31);
+    constexpr uint16_t S16FullScale = uint16_t(1 << 15);
+    constexpr uint8_t   S8FullScale = uint8_t(1 << 7);
+
+    constexpr double S8ToF32Scalar = 1.0 / S8FullScale;
+    constexpr double S16ToF32Scalar = 1.0 / S16FullScale;
+    constexpr double S32ToF32Scalar = 1.0 / S32FullScale;
+
+    constexpr double F32ToS8Scalar = 1.0 / S8ToF32Scalar;
+    constexpr double F32ToS16Scalar = 1.0 / S16ToF32Scalar;
+    constexpr double F32ToS32Scalar = 1.0 / S32ToF32Scalar;
+
     template <typename T>
     struct IsComplex : std::false_type {};
 

@@ -1,9 +1,10 @@
 // Copyright (c) 2019-2020 Nicholas Corgan
 // SPDX-License-Identifier: GPL-3.0
 
+#include "TestUtility.hpp"
+
 #include <SoapySDR/ConverterRegistry.hpp>
 #include <SoapySDR/Formats.hpp>
-#include <SoapySDR/Modules.hpp>
 #include <SoapySDR/Version.hpp>
 
 #include <volk/constants.h>
@@ -12,34 +13,13 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cstdlib>
-#include <cstring>
-#include <ctime>
 #include <iostream>
-#include <memory>
-#include <random>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-using SoapySDR::ConverterRegistry;
-
 static constexpr size_t numElements = 16384;
 static constexpr size_t numIterations = 10000;
-static constexpr double scalarRatio = 32.0;
-
-//
-// RAII volk_malloc
-//
-
-using VolkPtr = std::unique_ptr<void, void(*)(void*)>;
-
-static VolkPtr getVolkPtr(size_t size)
-{
-    return VolkPtr(
-               volk_malloc(size, volk_get_alignment()),
-               volk_free);
-}
 
 //
 // Utility functions
@@ -51,16 +31,14 @@ static volk_arch_pref* volkArchPrefsEnd = nullptr;
 
 // This should only be called once, as volk_load_preferences resets the
 // global struct each time, even if it's loaded with the same file.
-static void volkLoadPreferences()
+void volkLoadPreferences()
 {
     numVolkArchPrefs = volk_load_preferences(&volkArchPrefs);
     volkArchPrefsEnd = volkArchPrefs + numVolkArchPrefs;
 }
 
 // Assumes preferences are loaded
-static std::string getVolkMachineForFunc(
-    const std::string& kernel,
-    bool aligned)
+std::string getVolkMachineForFunc(const std::string& kernel)
 {
     auto prefsIter = std::find_if(
                          volkArchPrefs,
@@ -75,102 +53,41 @@ static std::string getVolkMachineForFunc(
     if(volkArchPrefsEnd == prefsIter)
     {
         std::cerr << "Could not find preferences for kernel " << kernel << "." << std::endl;
-        exit(EXIT_FAILURE);
+        return "";
     }
 
-    return aligned ? std::string(prefsIter->impl_a) : std::string(prefsIter->impl_u);
+    return std::string(prefsIter->impl_a);
 }
 
-static VolkPtr getRandomMemory(size_t numElements, size_t elementSize)
-{
-    const size_t memSize = numElements * elementSize;
-    auto mem = getVolkPtr(memSize);
-
-    // Fill the memory with "random" data. Not truly random, but enough for
-    // our purpose.
-    int* memAsInt = reinterpret_cast<int*>(mem.get());
-    for(size_t i = 0; i < (memSize/sizeof(int)); ++i)
-    {
-        memAsInt[i] = rand();
-    }
-
-    return mem;
-}
-
-double median(const std::vector<double>& inputs)
-{
-    std::vector<double> sortedInputs(inputs);
-    std::sort(sortedInputs.begin(), sortedInputs.end());
-
-    return sortedInputs[sortedInputs.size()/2];
-}
-
-double medAbsDev(const std::vector<double>& inputs)
-{
-    const double med = median(inputs);
-
-    std::vector<double> diffs;
-    std::transform(
-        inputs.begin(),
-        inputs.end(),
-        std::back_inserter(diffs),
-        [&med](double val){return std::abs(val-med);});
-
-    return median(diffs);
-}
-
-static inline double getScalar(
-    const std::string& source,
-    const std::string& target)
-{
-    const auto sourceSize = SoapySDR::formatToSize(source);
-    const auto targetSize = SoapySDR::formatToSize(target);
-
-    if(sourceSize == targetSize) return 1.0;
-
-    return (sourceSize > targetSize) ? (1.0 / scalarRatio) : scalarRatio;
-}
-
-static void benchmarkConverter(
+template <typename InType, typename OutType>
+void benchmarkConverter(
     const std::string& source,
     const std::string& target,
-    ConverterRegistry::FunctionPriority priority,
+    SoapySDR::ConverterRegistry::FunctionPriority priority,
+    double scalar,
     double* pMedian,
     double* pMedAbsDev)
 {
     using Microseconds = std::chrono::duration<double, std::micro>;
 
-    auto converterFunc = ConverterRegistry::getFunction(
+    auto converterFunc = SoapySDR::ConverterRegistry::getFunction(
                              source,
                              target,
                              priority);
 
-    std::vector<double> times;
+    volk::vector<double> times;
     times.reserve(numIterations);
 
-    auto output = getVolkPtr(numElements * SoapySDR::formatToSize(target));
-    if(!volk_is_aligned(output.get()))
-    {
-        std::cerr << "volk_malloc didn't return aligned pointer for output buffer" << std::endl;
-        exit(EXIT_FAILURE);
-    }
-
-    const auto scalar = getScalar(source, target);
+    const auto input = TestUtility::getRandomValues<InType>(numElements);
+    volk::vector<OutType> output(numElements);
 
     for(size_t i = 0; i < numIterations; ++i)
     {
-        auto input = getRandomMemory(numElements, SoapySDR::formatToSize(source));
-        if(!volk_is_aligned(input.get()))
-        {
-            std::cerr << "volk_malloc didn't return aligned pointer for input buffer" << std::endl;
-            exit(EXIT_FAILURE);
-        }
-
         auto startTime = std::chrono::system_clock::now();
 
         converterFunc(
-            input.get(),
-            output.get(),
+            input.data(),
+            output.data(),
             numElements,
             scalar);
 
@@ -179,58 +96,83 @@ static void benchmarkConverter(
         times.emplace_back(iterationTime.count());
     }
 
-    (*pMedian) = median(times);
-    (*pMedAbsDev) = medAbsDev(times);
+    (*pMedian) = TestUtility::median(times);
+    (*pMedAbsDev) = TestUtility::medAbsDev(times);
 }
 
-static void compareConverters(
+template <typename InType, typename OutType>
+void compareConverters(
     const std::string& source,
     const std::string& target,
-    const std::string& volkKernelName = "")
+    double scalar,
+    const std::string& volkKernelName)
 {
     double genericMedianTime, genericMedAbsDevTime;
     double vectorizedMedianTime, vectorizedMedAbsDevTime;
 
-    std::cout << std::endl << source << " -> " << target << std::endl;
-    benchmarkConverter(
-        source,
-        target,
-        ConverterRegistry::GENERIC,
-        &genericMedianTime,
-        &genericMedAbsDevTime);
-    benchmarkConverter(
-        source,
-        target,
-        ConverterRegistry::VECTORIZED,
-        &vectorizedMedianTime,
-        &vectorizedMedAbsDevTime);
-    std::cout << "Generic:    " << genericMedianTime << " us (MAD = " << genericMedAbsDevTime << " us)" << std::endl;
-    std::cout << "Vectorized: " << vectorizedMedianTime << " us (MAD = " << vectorizedMedAbsDevTime << " us)" << std::endl;
-    if(!volkKernelName.empty())
+    std::cout << std::endl << source << " -> " << target << " (scaled x" << scalar << ")" << std::endl;
+
+    try
     {
-        std::cout << "Machine:    " << getVolkMachineForFunc(volkKernelName, true) << std::endl;
+        benchmarkConverter<InType, OutType>(
+            source,
+            target,
+            SoapySDR::ConverterRegistry::GENERIC,
+            scalar,
+            &genericMedianTime,
+            &genericMedAbsDevTime);
+        benchmarkConverter<InType, OutType>(
+            source,
+            target,
+            SoapySDR::ConverterRegistry::VECTORIZED,
+            scalar,
+            &vectorizedMedianTime,
+            &vectorizedMedAbsDevTime);
+        std::cout << "Generic:    " << genericMedianTime << "us +- " << genericMedAbsDevTime << "us" << std::endl;
+        std::cout << "Vectorized: " << vectorizedMedianTime << "us +- " << vectorizedMedAbsDevTime << "us" << std::endl;
+        std::cout << "Machine:    " << getVolkMachineForFunc(volkKernelName) << std::endl;
+        std::cout << (genericMedianTime / vectorizedMedianTime) << "x faster" << std::endl;
     }
-    std::cout << (genericMedianTime / vectorizedMedianTime) << "x faster" << std::endl;
+    catch (const std::exception& ex)
+    {
+        std::cerr << "Benchmark failed with exception: " << ex.what() << std::endl;
+    }
+    catch (...)
+    {
+        std::cerr << "Unknown exception caught." << std::endl;
+    }
 }
 
-static void benchmarkVectorizedOnly(
+template <typename InType, typename OutType>
+void benchmarkVectorizedOnly(
     const std::string& source,
     const std::string& target,
-    const std::string& volkKernelName = "")
+    double scalar,
+    const std::string& volkKernelName)
 {
     double medianTime, medAbsDevTime;
 
-    std::cout << std::endl << source << " -> " << target << std::endl;
-    benchmarkConverter(
-        source,
-        target,
-        ConverterRegistry::VECTORIZED,
-        &medianTime,
-        &medAbsDevTime);
-    std::cout << "Vectorized: " << medianTime << " us (MAD = " << medAbsDevTime << " us)" << std::endl;
-    if(!volkKernelName.empty())
+    std::cout << std::endl << source << " -> " << target << " (scaled x" << scalar << ")" << std::endl;
+
+    try
     {
-        std::cout << "Machine:    " << getVolkMachineForFunc(volkKernelName, true) << std::endl;
+        benchmarkConverter<InType, OutType>(
+            source,
+            target,
+            SoapySDR::ConverterRegistry::VECTORIZED,
+            scalar,
+            &medianTime,
+            &medAbsDevTime);
+        std::cout << "Vectorized: " << medianTime << "us +- " << medAbsDevTime << "us" << std::endl;
+        std::cout << "Machine:    " << getVolkMachineForFunc(volkKernelName) << std::endl;
+    }
+    catch (const std::exception& ex)
+    {
+        std::cerr << "Benchmark failed with exception: " << ex.what() << std::endl;
+    }
+    catch (...)
+    {
+        std::cerr << "Unknown exception caught." << std::endl;
     }
 }
 
@@ -238,16 +180,12 @@ int main(int, char**)
 {
     try
     {
-        srand(time(0));
-
-        // TODO: portability
-        const std::string modulePath = "./libvolkConverters.so";
-        SoapySDR::loadModule(modulePath);
+        if (!TestUtility::loadSoapyVOLK()) return EXIT_FAILURE;
 
         // Places values in global variables
         volkLoadPreferences();
 
-        std::cout << "SoapyVOLKConverters " << SoapySDR::getModuleVersion(modulePath) << std::endl;
+        //std::cout << "SoapyVOLKConverters " << SoapySDR::getModuleVersion(modulePath) << std::endl;
         std::cout << "SoapySDR            " << SoapySDR::getLibVersion() << std::endl;
         std::cout << "VOLK                " << volk_version() << std::endl;
 
@@ -255,21 +193,196 @@ int main(int, char**)
         std::cout << "Stats:" << std::endl;
         std::cout << " * Buffer size:  " << numElements << std::endl;
         std::cout << " * # iterations: " << numIterations << std::endl;
-        std::cout << " * Scalar ratio: " << scalarRatio << std::endl;
 
-        compareConverters(SOAPY_SDR_CS16, SOAPY_SDR_CF32, "volk_16ic_convert_32fc");
-        compareConverters(SOAPY_SDR_S16, SOAPY_SDR_S8, "volk_16i_convert_8i");
-        compareConverters(SOAPY_SDR_CF32, SOAPY_SDR_CS16, "volk_32fc_convert_16ic");
-        compareConverters(SOAPY_SDR_S8, SOAPY_SDR_S16, "volk_8i_convert_16i");
-        compareConverters(SOAPY_SDR_S16, SOAPY_SDR_F32, "volk_16i_s32f_convert_32f");
-        compareConverters(SOAPY_SDR_F32, SOAPY_SDR_S16, "volk_32f_s32f_convert_32i");
-        compareConverters(SOAPY_SDR_F32, SOAPY_SDR_S8, "volk_32f_s32f_convert_8i");
-        compareConverters(SOAPY_SDR_S8, SOAPY_SDR_F32, "volk_8i_s32f_convert_32f");
+        // int8_t
+        compareConverters<int8_t, int16_t>(
+            SOAPY_SDR_S8,
+            SOAPY_SDR_S16,
+            1.0, // No scaling
+            "volk_16i_convert_8i");
+        compareConverters<int8_t, float>(
+            SOAPY_SDR_S8,
+            SOAPY_SDR_F32,
+            TestUtility::S8ToF32Scalar,
+            "volk_8i_s32f_convert_32f");
+        benchmarkVectorizedOnly<int8_t, double>(
+            SOAPY_SDR_S8,
+            SOAPY_SDR_F64,
+            TestUtility::S8ToF32Scalar,
+            "volk_8i_s32f_convert_32f");
 
-        benchmarkVectorizedOnly(SOAPY_SDR_F32, SOAPY_SDR_F64, "volk_32f_convert_64f");
-        benchmarkVectorizedOnly(SOAPY_SDR_F64, SOAPY_SDR_F32, "volk_64f_convert_32f");
-        benchmarkVectorizedOnly(SOAPY_SDR_F32, SOAPY_SDR_S32, "volk_32f_s32f_convert_32i");
-        benchmarkVectorizedOnly(SOAPY_SDR_S32, SOAPY_SDR_F32, "volk_32i_s32f_convert_32f");
+        // int16_t
+        compareConverters<int16_t, int8_t>(
+            SOAPY_SDR_S16,
+            SOAPY_SDR_S8,
+            1.0, // No scaling
+            "volk_16i_convert_8i");
+        compareConverters<int16_t, float>(
+            SOAPY_SDR_S16,
+            SOAPY_SDR_F32,
+            TestUtility::S16ToF32Scalar,
+            "volk_16i_s32f_convert_32f");
+        benchmarkVectorizedOnly<int16_t, double>(
+            SOAPY_SDR_S16,
+            SOAPY_SDR_F64,
+            TestUtility::S16ToF32Scalar,
+            "volk_16i_s32f_convert_32f");
+
+        // int32_t
+        benchmarkVectorizedOnly<int32_t, float>(
+            SOAPY_SDR_S32,
+            SOAPY_SDR_F32,
+            TestUtility::S32ToF32Scalar,
+            "volk_32i_s32f_convert_32f");
+        benchmarkVectorizedOnly<int32_t, double>(
+            SOAPY_SDR_S32,
+            SOAPY_SDR_F64,
+            TestUtility::S32ToF32Scalar,
+            "volk_32i_s32f_convert_32f");
+
+        // float
+        compareConverters<float, int8_t>(
+            SOAPY_SDR_F32,
+            SOAPY_SDR_S8,
+            TestUtility::F32ToS8Scalar,
+            "volk_32f_s32f_convert_8i");
+        compareConverters<float, int16_t>(
+            SOAPY_SDR_F32,
+            SOAPY_SDR_S16,
+            TestUtility::F32ToS16Scalar,
+            "volk_32f_s32f_convert_16i");
+        benchmarkVectorizedOnly<float, int32_t>(
+            SOAPY_SDR_F32,
+            SOAPY_SDR_S32,
+            TestUtility::F32ToS32Scalar,
+            "volk_32f_s32f_convert_32i");
+        compareConverters<float, float>(
+            SOAPY_SDR_F32,
+            SOAPY_SDR_F32,
+            10.0,
+            "volk_32f_s32f_multiply_32f");
+        benchmarkVectorizedOnly<float, double>(
+            SOAPY_SDR_F32,
+            SOAPY_SDR_F64,
+            1.0,
+            "volk_32f_convert_64f");
+
+        // double
+        benchmarkVectorizedOnly<double, int8_t>(
+            SOAPY_SDR_F64,
+            SOAPY_SDR_S8,
+            TestUtility::F32ToS8Scalar,
+            "volk_32f_s32f_convert_8i");
+        benchmarkVectorizedOnly<double, int16_t>(
+            SOAPY_SDR_F64,
+            SOAPY_SDR_S16,
+            TestUtility::F32ToS16Scalar,
+            "volk_32f_s32f_convert_16i");
+        benchmarkVectorizedOnly<double, int32_t>(
+            SOAPY_SDR_F64,
+            SOAPY_SDR_S32,
+            TestUtility::F32ToS32Scalar,
+            "volk_32f_s32f_convert_32i");
+        benchmarkVectorizedOnly<double, float>(
+            SOAPY_SDR_F64,
+            SOAPY_SDR_F32,
+            10.0,
+            "volk_32f_s32f_multiply_32f");
+
+        // std::complex<int8_t>
+        compareConverters<std::complex<int8_t>, std::complex<int16_t>>(
+            SOAPY_SDR_CS8,
+            SOAPY_SDR_CS16,
+            1.0, // No scaling
+            "volk_16i_convert_8i");
+        compareConverters<std::complex<int8_t>, std::complex<float>>(
+            SOAPY_SDR_CS8,
+            SOAPY_SDR_CF32,
+            TestUtility::S8ToF32Scalar,
+            "volk_8i_s32f_convert_32f");
+        benchmarkVectorizedOnly<std::complex<int8_t>, std::complex<double>>(
+            SOAPY_SDR_CS8,
+            SOAPY_SDR_CF64,
+            TestUtility::S8ToF32Scalar,
+            "volk_8i_s32f_convert_32f");
+
+        // std::complex<int16_t>
+        compareConverters<std::complex<int16_t>, std::complex<int8_t>>(
+            SOAPY_SDR_CS16,
+            SOAPY_SDR_CS8,
+            1.0, // No scaling
+            "volk_16i_convert_8i");
+        compareConverters<std::complex<int16_t>, std::complex<float>>(
+            SOAPY_SDR_CS16,
+            SOAPY_SDR_CF32,
+            TestUtility::S16ToF32Scalar,
+            "volk_16i_s32f_convert_32f");
+        benchmarkVectorizedOnly<std::complex<int16_t>, std::complex<double>>(
+            SOAPY_SDR_CS16,
+            SOAPY_SDR_CF64,
+            TestUtility::S16ToF32Scalar,
+            "volk_16i_s32f_convert_32f");
+
+        // std::complex<int32_t>
+        benchmarkVectorizedOnly<std::complex<int32_t>, std::complex<float>>(
+            SOAPY_SDR_CS32,
+            SOAPY_SDR_CF32,
+            TestUtility::S32ToF32Scalar,
+            "volk_32i_s32f_convert_32f");
+        benchmarkVectorizedOnly<std::complex<int32_t>, std::complex<double>>(
+            SOAPY_SDR_CS32,
+            SOAPY_SDR_CF64,
+            TestUtility::S32ToF32Scalar,
+            "volk_32i_s32f_convert_32f");
+
+        // std::complex<float>
+        compareConverters<std::complex<float>, std::complex<int8_t>>(
+            SOAPY_SDR_CF32,
+            SOAPY_SDR_CS8,
+            TestUtility::F32ToS8Scalar,
+            "volk_32f_s32f_convert_8i");
+        compareConverters<std::complex<float>, std::complex<int16_t>>(
+            SOAPY_SDR_CF32,
+            SOAPY_SDR_CS16,
+            TestUtility::F32ToS16Scalar,
+            "volk_32f_s32f_convert_16i");
+        benchmarkVectorizedOnly<std::complex<float>, std::complex<int32_t>>(
+            SOAPY_SDR_CF32,
+            SOAPY_SDR_CS32,
+            TestUtility::F32ToS32Scalar,
+            "volk_32f_s32f_convert_32i");
+        compareConverters<std::complex<float>, std::complex<float>>(
+            SOAPY_SDR_CF32,
+            SOAPY_SDR_CF32,
+            10.0,
+            "volk_32f_s32f_multiply_32f");
+        benchmarkVectorizedOnly<std::complex<float>, std::complex<double>>(
+            SOAPY_SDR_CF32,
+            SOAPY_SDR_CF64,
+            1.0,
+            "volk_32f_convert_64f");
+
+        // std::complex<double>
+        benchmarkVectorizedOnly<std::complex<double>, std::complex<int8_t>>(
+            SOAPY_SDR_CF64,
+            SOAPY_SDR_CS8,
+            TestUtility::F32ToS8Scalar,
+            "volk_32f_s32f_convert_8i");
+        benchmarkVectorizedOnly<std::complex<double>, std::complex<int16_t>>(
+            SOAPY_SDR_CF64,
+            SOAPY_SDR_CS16,
+            TestUtility::F32ToS16Scalar,
+            "volk_32f_s32f_convert_16i");
+        benchmarkVectorizedOnly<std::complex<double>, std::complex<int32_t>>(
+            SOAPY_SDR_CF64,
+            SOAPY_SDR_CS32,
+            TestUtility::F32ToS32Scalar,
+            "volk_32f_s32f_convert_32i");
+        benchmarkVectorizedOnly<std::complex<double>, std::complex<float>>(
+            SOAPY_SDR_CF64,
+            SOAPY_SDR_CF32,
+            10.0,
+            "volk_32f_s32f_multiply_32f");
     }
     catch(const std::exception& ex)
     {
