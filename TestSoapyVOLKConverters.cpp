@@ -324,12 +324,6 @@ int main(int, char**)
     testConverterLoopback<std::complex<int8_t>, std::complex<int16_t>>(SOAPY_SDR_CS8, SOAPY_SDR_CS16, 1.0); // No scaling support
 
     testConverterLoopback<std::complex<int16_t>, std::complex<int8_t>>(SOAPY_SDR_CS16, SOAPY_SDR_CS8, 1.0); // No scaling support
-    testConverterLoopback<std::complex<int16_t>, std::complex<float>>(SOAPY_SDR_CS16, SOAPY_SDR_CF32, S16ToF32Scalar);
-    testConverterLoopback<std::complex<int16_t>, std::complex<double>>(SOAPY_SDR_CS16, SOAPY_SDR_CF64, S16ToF32Scalar);
-
-    testConverterLoopback<std::complex<float>, std::complex<int16_t>>(SOAPY_SDR_CF32, SOAPY_SDR_CS16, F32ToS16Scalar);
-
-    testConverterLoopback<std::complex<double>, std::complex<int16_t>>(SOAPY_SDR_CF64, SOAPY_SDR_CS16, F32ToS16Scalar);
 
     std::cout << "-----" << std::endl;
 

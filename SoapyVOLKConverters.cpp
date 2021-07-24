@@ -298,47 +298,6 @@ static SoapySDR::ConverterRegistry registerF64ToF32(
     });
 
 //
-// std::complex<int16_t>
-//
-
-static void convertCS16ToCF32(const void* srcBuff, void* dstBuff, const size_t numElems, const double scalar)
-{
-    volk::vector<lv_32fc_t> unscaled(numElems);
-    volk_16ic_convert_32fc(
-        unscaled.data(),
-        (const lv_16sc_t*)srcBuff,
-        static_cast<unsigned int>(numElems));
-
-    const lv_32fc_t complexScalar(scalar);
-    volk_32fc_s32fc_multiply_32fc(
-        (lv_32fc_t*)dstBuff,
-        unscaled.data(),
-        complexScalar,
-        static_cast<unsigned int>(numElems));
-}
-
-static SoapySDR::ConverterRegistry registerCS16ToCF32(
-    SOAPY_SDR_CS16,
-    SOAPY_SDR_CF32,
-    SoapySDR::ConverterRegistry::VECTORIZED,
-    &convertCS16ToCF32);
-
-static SoapySDR::ConverterRegistry registerCS16ToCF64(
-    SOAPY_SDR_CS16,
-    SOAPY_SDR_CF64,
-    SoapySDR::ConverterRegistry::VECTORIZED,
-    [](const void* srcBuff, void* dstBuff, const size_t numElems, const double scalar)
-    {
-        volk::vector<float> intermediate(numElems * 2);
-        convertCS16ToCF32(srcBuff, intermediate.data(), numElems, scalar);
-
-        volk_32f_convert_64f(
-            reinterpret_cast<double*>(dstBuff),
-            intermediate.data(),
-            static_cast<unsigned int>(numElems * 2));
-    });
-
-//
 // std::complex<int8_t>
 //
 
@@ -368,49 +327,4 @@ static SoapySDR::ConverterRegistry registerCS16ToCS8(
             reinterpret_cast<int8_t*>(dstBuff),
             reinterpret_cast<const int16_t*>(srcBuff),
             static_cast<unsigned int>(numElems * 2));
-    });
-
-//
-// std::complex<float>
-//
-
-static void convertCF32ToCS16(const void* srcBuff, void* dstBuff, const size_t numElems, const double scalar)
-{
-    const lv_32fc_t complexScalar(scalar);
-    volk::vector<lv_32fc_t> scaled(numElems);
-    volk_32fc_s32fc_multiply_32fc(
-        scaled.data(),
-        (const lv_32fc_t*)srcBuff,
-        complexScalar,
-        static_cast<unsigned int>(numElems));
-
-    volk_32fc_convert_16ic(
-        (lv_16sc_t*)dstBuff,
-        scaled.data(),
-        static_cast<unsigned int>(numElems));
-}
-
-static SoapySDR::ConverterRegistry registerCF32ToCS16(
-    SOAPY_SDR_CF32,
-    SOAPY_SDR_CS16,
-    SoapySDR::ConverterRegistry::VECTORIZED,
-    &convertCF32ToCS16);
-
-//
-// std::complex<double>
-//
-
-static SoapySDR::ConverterRegistry registerCF64toCS16(
-    SOAPY_SDR_CF64,
-    SOAPY_SDR_CS16,
-    SoapySDR::ConverterRegistry::VECTORIZED,
-    [](const void* srcBuff, void* dstBuff, const size_t numElems, const double scalar)
-    {
-        volk::vector<float> intermediate(numElems * 2);
-        volk_64f_convert_32f(
-            intermediate.data(),
-            reinterpret_cast<const double*>(srcBuff),
-            static_cast<unsigned int>(numElems * 2));
-
-        convertCF32ToCS16(intermediate.data(), dstBuff, numElems, scalar);
     });
