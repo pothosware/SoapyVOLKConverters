@@ -6,9 +6,34 @@
  **********************************************************************/
 
 #include <SoapySDR/ConverterRegistry.hpp>
+#include <SoapySDR/Logger.hpp>
 
-#include <volk/volk_alloc.hh>
 #include <volk/volk.h>
+#include <volk/volk_alloc.hh>
+#include <volk/volk_prefs.h>
+
+//
+// Initialization
+//
+
+struct ModuleInit
+{
+    ModuleInit()
+    {
+        constexpr size_t VOLKPathSize = 512;
+        char path[VOLKPathSize] = {0};
+
+        volk_get_config_path(path, true);
+        if(path[0] == 0)
+        {
+            SoapySDR::log(
+                SOAPY_SDR_WARNING,
+                "SoapyVOLKConverters: no VOLK config file found. Run volk_profile for best performance.");
+        }
+    }
+};
+
+static const ModuleInit Init;
 
 //
 // Common code
