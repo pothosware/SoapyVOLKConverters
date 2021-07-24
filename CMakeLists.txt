@@ -55,6 +55,12 @@ SOAPY_SDR_MODULE_UTIL(
 )
 
 ########################################################################
+# Common code for unit test and benchmark
+########################################################################
+add_library(TestUtility STATIC TestUtility.cpp)
+target_link_libraries(TestUtility Volk::volk)
+
+########################################################################
 # Add test
 ########################################################################
 add_executable(TestSoapyVOLKConverters TestSoapyVOLKConverters.cpp)
@@ -62,6 +68,7 @@ add_test(TestSoapyVOLKConverters TestSoapyVOLKConverters)
 
 # Link against Soapy, not the module, which is loaded at runtime
 target_link_libraries(TestSoapyVOLKConverters
+    TestUtility
     ${SoapySDR_LIBRARIES}
     Volk::volk)
 
@@ -72,6 +79,7 @@ add_executable(BenchmarkSoapyVOLKConverters BenchmarkSoapyVOLKConverters.cpp)
 
 # Link against Soapy, not the module, which is loaded at runtime
 target_link_libraries(BenchmarkSoapyVOLKConverters
+    TestUtility
     ${SoapySDR_LIBRARIES}
     Volk::volk)
 

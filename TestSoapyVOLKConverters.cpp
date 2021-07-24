@@ -1,213 +1,18 @@
 // Copyright (c) 2019-2021 Nicholas Corgan
 // SPDX-License-Identifier: GPL-3.0
 
+#include "TestUtility.hpp"
+
 #include <SoapySDR/ConverterRegistry.hpp>
 #include <SoapySDR/Formats.hpp>
-#include <SoapySDR/Modules.hpp>
 
 #include <volk/volk_alloc.hh>
 
-#include <cmath>
-#include <complex>
 #include <cstdint>
-#include <cstdlib>
-#include <cstring>
 #include <iostream>
 #include <random>
 #include <stdexcept>
 #include <string>
-#include <type_traits>
-#include <vector>
-
-using SoapySDR::ConverterRegistry;
-
-//
-// Utility (TODO: common file brought in here and in benchmark)
-//
-
-template <typename T>
-struct IsComplex : std::false_type {};
-
-template <typename T>
-struct IsComplex<std::complex<T>> : std::true_type {};
-
-template <typename T, typename Ret>
-using EnableIfByte = typename std::enable_if_t<(sizeof(T) == 1), Ret>;
-
-template <typename T, typename Ret>
-using EnableIfIntegral = typename std::enable_if_t<std::is_integral_v<T> && !IsComplex<T>::value && (sizeof(T) > 1), Ret>;
-
-template <typename T, typename Ret>
-using EnableIfFloatingPoint = typename std::enable_if_t<std::is_floating_point_v<T> && !IsComplex<T>::value, Ret>;
-
-template <typename T, typename Ret>
-using EnableIfNotComplex = typename std::enable_if_t<!IsComplex<T>::value, Ret>;
-
-template <typename T, typename Ret>
-using EnableIfComplex = typename std::enable_if_t<IsComplex<T>::value, Ret>;
-
-static std::random_device rd;
-static std::mt19937 gen(rd());
-
-template <typename T>
-static EnableIfByte<T, T> getRandomValue()
-{
-    static std::uniform_int_distribution<int> dist(0, 127);
-    return T(dist(gen));
-}
-
-template <typename T>
-static EnableIfIntegral<T, T> getRandomValue()
-{
-    static std::uniform_int_distribution<T> dist(T(0), std::numeric_limits<T>::max());
-    return dist(gen);
-}
-
-template <typename T>
-static EnableIfFloatingPoint<T, T> getRandomValue()
-{
-    static std::uniform_real_distribution<T> dist(T(0.0), T(1.0));
-    return dist(gen);
-}
-
-template <typename T>
-static EnableIfComplex<T, T> getRandomValue()
-{
-    using ScalarType = typename T::value_type;
-    return T(getRandomValue<ScalarType>(), getRandomValue<ScalarType>());
-}
-
-template <typename T>
-static volk::vector<T> getRandomValues(size_t numElements)
-{
-    volk::vector<T> randomValues;
-    for (size_t i = 0; i < numElements; ++i) randomValues.emplace_back(getRandomValue<T>());
-
-    return randomValues;
-}
-
-static bool loadSoapyVOLK()
-{
-    try
-    {
-        SoapySDR::loadModule("Release\\volkConverters.dll");
-    }
-    catch (const std::exception& ex)
-    {
-        std::cerr << "Exception loading module: " << ex.what() << std::endl;
-        return false;
-    }
-
-    return true;
-}
-
-template <typename T>
-T median(const volk::vector<T>& inputs)
-{
-    volk::vector<T> sortedInputs(inputs);
-    std::sort(sortedInputs.begin(), sortedInputs.end());
-
-    return sortedInputs[sortedInputs.size() / 2];
-}
-
-template <typename T>
-double medAbsDev(const volk::vector<T>& inputs)
-{
-    const T med = median(inputs);
-
-    volk::vector<T> diffs;
-    std::transform(
-        inputs.begin(),
-        inputs.end(),
-        std::back_inserter(diffs),
-        [&med](T val) {return std::abs(val - med); });
-
-    return median(diffs);
-}
-
-template <typename T>
-static EnableIfNotComplex<T, T> absDiff(const T& num0, const T& num1)
-{
-    return std::abs(num0 - num1);
-}
-
-template <typename T>
-static EnableIfComplex<T, typename T::value_type> absDiff(const T& num0, const T& num1)
-{
-    return std::abs(std::abs(num0) - std::abs(num1));
-}
-
-template <typename T>
-static void averageValues(
-    const volk::vector<T>& vec0,
-    const volk::vector<T>& vec1,
-    T& medianOut,
-    T& medAbsDevOut)
-{
-    volk::vector<T> diffs(vec0.size());
-    for (size_t i = 0; i < vec0.size(); ++i)
-    {
-        diffs[i] = absDiff(vec0[i], vec1[i]);
-    }
-
-    medianOut = median(diffs);
-    medAbsDevOut = medAbsDev(diffs);
-}
-
-template <typename T>
-static void averageValues(
-    const volk::vector<std::complex<T>>& vec0,
-    const volk::vector<std::complex<T>>& vec1,
-    T& medianOut,
-    T& medAbsDevOut)
-{
-    volk::vector<T> diffs(vec0.size());
-    for (size_t i = 0; i < vec0.size(); ++i)
-    {
-        diffs[i] = absDiff(vec0[i], vec1[i]);
-    }
-
-    medianOut = median(diffs);
-    medAbsDevOut = medAbsDev(diffs);
-}
-
-template <typename T>
-static inline EnableIfNotComplex<T, void> testOutputs(
-    const volk::vector<T>& vec0,
-    const volk::vector<T>& vec1)
-{
-    T median(0);
-    T medAbsDev(0);
-    averageValues(
-        vec0,
-        vec1,
-        median,
-        medAbsDev);
-
-    std::cout << " * Average diff: " << double(median) << " +- " << double(medAbsDev) << std::endl;
-}
-
-template <typename T>
-static EnableIfComplex<T, void> testOutputs(
-    const volk::vector<T>& vec0,
-    const volk::vector<T>& vec1)
-{
-    using ScalarT = typename T::value_type;
-
-    ScalarT median(0);
-    ScalarT medAbsDev(0);
-    averageValues(
-        vec0,
-        vec1,
-        median,
-        medAbsDev);
-
-    std::cout << " * Average complex diff: " << double(median) << " +- " << double(medAbsDev) << std::endl;
-}
-
-//
-// Test code
-//
 
 struct TestConverters
 {
@@ -241,8 +46,42 @@ bool getConvertFunctions(
     return true;
 }
 
+template <typename T>
+TestUtility::EnableIfNotComplex<T, void> testOutputs(
+    const volk::vector<T>& vec0,
+    const volk::vector<T>& vec1)
+{
+    T median(0);
+    T medAbsDev(0);
+    TestUtility::averageValues(
+        vec0,
+        vec1,
+        median,
+        medAbsDev);
+
+    std::cout << " * Average diff: " << double(median) << " +- " << double(medAbsDev) << std::endl;
+}
+
+template <typename T>
+TestUtility::EnableIfComplex<T, void> testOutputs(
+    const volk::vector<T>& vec0,
+    const volk::vector<T>& vec1)
+{
+    using ScalarT = typename T::value_type;
+
+    ScalarT median(0);
+    ScalarT medAbsDev(0);
+    TestUtility::averageValues(
+        vec0,
+        vec1,
+        median,
+        medAbsDev);
+
+    std::cout << " * Average complex diff: " << double(median) << " +- " << double(medAbsDev) << std::endl;
+}
+
 template <typename InType, typename OutType>
-static bool testConverterLoopback(
+bool testConverterLoopback(
     const std::string& type1,
     const std::string& type2,
     const double type1ToType2Scalar)
@@ -260,7 +99,7 @@ static bool testConverterLoopback(
     if (!testConverters.convertType1ToType2) return false;
     if (!testConverters.convertType2ToType1) return false;
 
-    const volk::vector<InType> testValues = getRandomValues<InType>(numElements);
+    const volk::vector<InType> testValues = TestUtility::getRandomValues<InType>(numElements);
     volk::vector<OutType> convertedValues(numElements);
     volk::vector<InType> loopbackValues(numElements);
 
@@ -286,7 +125,7 @@ static bool testConverterLoopback(
 
 int main(int, char**)
 {
-    if (!loadSoapyVOLK()) return EXIT_FAILURE;
+    if (!TestUtility::loadSoapyVOLK()) return EXIT_FAILURE;
 
     // Test scalars copied from ConverterPrimitives.hpp
     constexpr uint32_t S32FullScale = uint32_t(1 << 31);
