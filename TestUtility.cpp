@@ -40,11 +40,11 @@ namespace TestUtility
             char* _ = getcwd(cwd, sizeof(cwd)); // Suppress Clang warning
             (void)_;
 
-#if IS_WIN32
+#ifdef IS_WIN32
             basename = "volkConverters";
             extension = ".dll";
             separator = "\\";
-            subpath = getCWD() + separator + CMAKE_BUILD_TYPE;
+            subpath = cwd + separator + CMAKE_BUILD_TYPE;
 #else
             basename = "libvolkConverters";
             extension = ".so";
