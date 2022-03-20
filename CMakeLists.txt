@@ -12,6 +12,9 @@ if(NOT CMAKE_BUILD_TYPE)
 endif(NOT CMAKE_BUILD_TYPE)
 set(CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE} CACHE STRING "")
 
+# C++-14 required for VOLK
+set(CMAKE_CXX_STANDARD 14)
+
 ########################################################################
 # Dependencies
 ########################################################################
@@ -38,11 +41,18 @@ SOAPY_SDR_MODULE_UTIL(
         Volk::volk
 )
 
+if(MSVC)
+    target_compile_options(volkConverters PUBLIC /wd4251) #disable 'identifier' : class 'type' needs to have dll-interface to be used by clients of class 'type2'
+endif()
+
 ########################################################################
 # Common code for unit test and benchmark
 ########################################################################
 add_library(TestUtility STATIC TestUtility.cpp)
 target_link_libraries(TestUtility Volk::volk)
+if(MSVC)
+    target_compile_options(TestUtility PUBLIC /wd4251) #disable 'identifier' : class 'type' needs to have dll-interface to be used by clients of class 'type2'
+endif()
 
 ########################################################################
 # Add test
@@ -55,6 +65,9 @@ target_link_libraries(TestSoapyVOLKConverters
     TestUtility
     ${SoapySDR_LIBRARIES}
     Volk::volk)
+if(MSVC)
+    target_compile_options(TestSoapyVOLKConverters PUBLIC /wd4251) #disable 'identifier' : class 'type' needs to have dll-interface to be used by clients of class 'type2'
+endif()
 
 ########################################################################
 # Benchmark VOLK vs. generic converters
@@ -66,6 +79,9 @@ target_link_libraries(BenchmarkSoapyVOLKConverters
     TestUtility
     ${SoapySDR_LIBRARIES}
     Volk::volk)
+if(MSVC)
+    target_compile_options(BenchmarkSoapyVOLKConverters PUBLIC /wd4251) #disable 'identifier' : class 'type' needs to have dll-interface to be used by clients of class 'type2'
+endif()
 
 ########################################################################
 # Print Summary

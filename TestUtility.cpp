@@ -13,7 +13,9 @@
 #if defined _WIN32 || defined __CYGWIN__
 #define IS_WIN32
 
-#include <direct.h> // getcwd
+#include <direct.h> // _getcwd
+
+#define getcwd _getcwd
 #else
 #define IS_UNIX
 
