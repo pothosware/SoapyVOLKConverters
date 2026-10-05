@@ -19,6 +19,13 @@ set(CMAKE_CXX_STANDARD 14)
 # Dependencies
 ########################################################################
 find_package(SoapySDR "0.7" REQUIRED)
+
+get_filename_component(_SoapySDR_ROOT "${SoapySDR_INCLUDE_DIRS}/.." ABSOLUTE)
+message(STATUS "SoapySDR root directory: ${_SoapySDR_ROOT}")
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT AND NOT "${_SoapySDR_ROOT}" STREQUAL "/usr")
+    set_property(CACHE CMAKE_INSTALL_PREFIX PROPERTY VALUE ${_SoapySDR_ROOT})
+endif()
+
 find_package(Volk REQUIRED)
 
 include_directories(
