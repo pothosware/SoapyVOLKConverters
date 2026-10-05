@@ -3,3 +3,6 @@
 *pyc
 *pyo
 *pyd
+/build
+/.vscode
+/.history
